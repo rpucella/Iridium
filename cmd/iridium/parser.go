@@ -68,14 +68,11 @@ const (
 	WORD
 	STRING
 
-	BRACE   // {{
-	CLOSE   // }
-
 	QUOTE   // "
 	
-	// Keywords
-	BEGIN   // {option
-	END     // {/option
+	OPEN    // ((
+	CLOSE   // ))
+
 )
 
 
@@ -88,10 +85,19 @@ func isLetter(ch rune) bool {
 }
 
 func isStopSymbol(ch rune) bool {
-	return ch == '{' || ch == '}' || isWhitespace(ch) || ch == eof
+	return ch == '(' || ch == ')' || isWhitespace(ch) || ch == eof
 }
 
 var eof = rune(0)
+
+// TODO: Check whether we can use a normal library Scanner?
+
+// TODO: Implement look-ahead nicely.
+
+// TODO: Add an s-expression parser:
+//   (( marks the beginning of an instruction
+//   push back ), parse sexp, make sure next character is ')'
+//   that might be a full token: an ANNOTATION
 
 // Scanner represents a lexical scanner.
 type Scanner struct {
@@ -130,8 +136,8 @@ func (s *Scanner) Scan() (tok Token, lit string) {
 	} else if isWhitespace(ch) {
 		s.unread()
 		return s.scanWhitespace()
-	} else if ch == '{' {
-		return s.scanSpecial()
+	} else if ch == '(' {
+		return s.scanOpen()
 	} else if ch == '"' {
 		return QUOTE, ""
 	}
@@ -151,13 +157,41 @@ func (s *Scanner) ScanDirective() (tok Token, lit string) {
 	} else if isWhitespace(ch) {
 		s.unread()
 		return s.scanWhitespace()
-	} else if ch == '}' {
-		return CLOSE, ""
+	} else if ch == ')' {
+		return s.scanClose()
 	} else if ch == '"' {
 		return s.scanString()
 	}
 	s.unread()
 	return s.scanWordInDirective()
+}
+
+func (s *Scanner) scanOpen() (tok Token, lit string) {
+	// Read the next rune.
+	ch := s.read()
+	if (ch == eof || isWhitespace(ch) || ch == '"') {
+		s.unread()
+		return WORD, "("
+	}
+	if (ch == '(') {
+		return OPEN, ""
+	}
+	tok, str := s.scanWord()
+	return WORD, "(" + str
+}
+
+func (s *Scanner) scanClose() (tok Token, lit string) {
+	// Read the next rune.
+	ch := s.read()
+	if (ch == eof || isWhitespace(ch) || ch == '"') {
+		s.unread()
+		return WORD, ")"
+	}
+	if (ch == ')') {
+		return CLOSE, ""
+	}
+	tok, str := s.scanWord()
+	return WORD, ")" + str
 }
 
 // scanWhitespace consumes the current rune and all contiguous whitespace.
@@ -199,7 +233,7 @@ func (s *Scanner) scanWord() (tok Token, lit string) {
 		ch := s.read()
 		if ch == eof {
 			break
-		} else if isWhitespace(ch) || ch == '}' || ch == '{' {
+		} else if isWhitespace(ch) || ch == ')' || ch == '(' {
 			s.unread()
 			break
 		} else if ch == '"' {
@@ -222,7 +256,7 @@ func (s *Scanner) scanWordInDirective() (tok Token, lit string) {
 		ch := s.read()
 		if ch == eof {
 			break
-		} else if isWhitespace(ch) || ch == '}' || ch == '{' {
+		} else if isWhitespace(ch) || ch == ')' || ch == '(' {
 			s.unread()
 			break
 		} else {
@@ -249,41 +283,6 @@ func (s *Scanner) scanString() (tok Token, lit string) {
 		}
 	}
 	return STRING, buf.String()
-}
-
-func (s *Scanner) scanSpecial() (tok Token, lit string) {
-	// Create a buffer.
-	var buf bytes.Buffer
-
-	ch := s.read()
-	if ch == '{' {
-		return BRACE, ""
-	} else if isStopSymbol(ch) {
-		return ILLEGAL, ""
-	} else if ch == '/' {
-		ch := s.read()
-		if isStopSymbol(ch) {
-			return ILLEGAL, ""
-		}
-		buf.WriteRune(ch)
-		for {
-			ch := s.read()
-			if isStopSymbol(ch) {
-				s.unread()
-				return END, buf.String()
-			}
-			buf.WriteRune(ch)
-		}
-	}
-	buf.WriteRune(ch)
-	for {
-		ch := s.read()
-		if isStopSymbol(ch) {
-			s.unread()
-			return BEGIN, buf.String()
-		}
-		buf.WriteRune(ch)
-	}
 }
 
 // Parser represents a parser.
@@ -402,7 +401,7 @@ func (p *Parser) Parse() (*Passage, error) {
 			}
 			return passage, nil
 		}
-		if tok == BEGIN {
+		if tok == OPEN {
 			if inQuote {
 				inQuote = false
 				savedText = append(savedText, Text{TEXT_QUOTE, "", blockText})
@@ -412,26 +411,32 @@ func (p *Parser) Parse() (*Passage, error) {
 				passage.Blocks = append(passage.Blocks, Block{TEXT, blockText, "", ""})
 				blockText = make([]Text, 0, 10)
 			}
-			if lit == "option" {
+			tok, lit := p.scanDirectiveIgnoreWhitespace()  // get instruction
+			if tok == WORD && lit == "option" {
 				tok, target := p.scanDirectiveIgnoreWhitespace()
 				if tok != WORD && tok != STRING {
-					return nil, fmt.Errorf("No name supplied after {option")
+					return nil, fmt.Errorf("No name supplied with option")
 				}
 				tok, _ = p.scanDirectiveIgnoreWhitespace()
 				if tok != CLOSE {
-					return nil, fmt.Errorf("Extra junk after {option name")
+					return nil, fmt.Errorf("Extra junk after option name")
 				}
 				text := make([]Text, 0, 10)
 				for {
 					tok, lit = p.scanIgnoreWhitespace()
 					if tok == WORD {
 						text = append(text, Text{TEXT_WORD, lit, nil})
-					} else if tok == END && lit == "option" {
-						tok, _ = p.scanDirectiveIgnoreWhitespace()
-						if tok != CLOSE {
-							return nil, fmt.Errorf("Extra junk after {/option")
+					} else if tok == OPEN {
+						tok, lit := p.scanDirectiveIgnoreWhitespace()
+						if tok == WORD && lit == "end" {
+							tok, _ = p.scanDirectiveIgnoreWhitespace()
+							if tok != CLOSE {
+								return nil, fmt.Errorf("Extra junk after end")
+							}
+							break
+						} else {
+							return nil, fmt.Errorf("Illegal token in option text")
 						}
-						break
 					} else {
 						return nil, fmt.Errorf("Illegal token in option text")
 					}
