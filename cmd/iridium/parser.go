@@ -176,6 +176,7 @@ func (s *Scanner) scanOpen() (tok Token, lit string) {
 	if (ch == '(') {
 		return OPEN, ""
 	}
+	s.unread()
 	tok, str := s.scanWord()
 	return WORD, "(" + str
 }
@@ -233,7 +234,7 @@ func (s *Scanner) scanWord() (tok Token, lit string) {
 		ch := s.read()
 		if ch == eof {
 			break
-		} else if isWhitespace(ch) || ch == ')' || ch == '(' {
+		} else if isWhitespace(ch) || ch == '(' {
 			s.unread()
 			break
 		} else if ch == '"' {
@@ -256,7 +257,7 @@ func (s *Scanner) scanWordInDirective() (tok Token, lit string) {
 		ch := s.read()
 		if ch == eof {
 			break
-		} else if isWhitespace(ch) || ch == ')' || ch == '(' {
+		} else if isWhitespace(ch) || ch == ')' {
 			s.unread()
 			break
 		} else {
@@ -414,7 +415,7 @@ func (p *Parser) Parse() (*Passage, error) {
 			tok, lit := p.scanDirectiveIgnoreWhitespace()  // get instruction
 			if tok == WORD && lit == "option" {
 				tok, target := p.scanDirectiveIgnoreWhitespace()
-				if tok != WORD && tok != STRING {
+				if tok != STRING {
 					return nil, fmt.Errorf("No name supplied with option")
 				}
 				tok, _ = p.scanDirectiveIgnoreWhitespace()
@@ -442,13 +443,13 @@ func (p *Parser) Parse() (*Passage, error) {
 					}
 				}
 				passage.Options = append(passage.Options, Option{target, text})
-			} else if lit == "image" {
+			} else if tok == WORD && lit == "image" {
 				tok, target := p.scanDirectiveIgnoreWhitespace()
-				if tok != WORD && tok != STRING {
+				if tok != STRING {
 					return nil, fmt.Errorf("No image target supplied after {image")
 				}
 				tok, style := p.scanDirectiveIgnoreWhitespace()
-				if tok != WORD && tok != STRING {
+				if tok != STRING {
 					return nil, fmt.Errorf("No style after {image target")
 				}
 				tok, _ = p.scanDirectiveIgnoreWhitespace()
