@@ -70,11 +70,26 @@ const (
 
 	QUOTE   // "
 	
-	OPEN    // ((
-	CLOSE   // ))
+	ANNOTATION  // #(
+	OPEN    // (
+	CLOSE   // )
 
 )
 
+const (
+	T_INT = iota
+	T_STRING
+	T_SYMBOL
+	T_CONS
+	T_NIL
+)
+
+type SExp struct {
+	kind int
+	value string
+	car *SExp
+	cdr *SExp
+}
 
 func isWhitespace(ch rune) bool {
 	return ch == ' ' || ch == '\t' || ch == '\n'
@@ -82,10 +97,6 @@ func isWhitespace(ch rune) bool {
 
 func isLetter(ch rune) bool {
 	return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')
-}
-
-func isStopSymbol(ch rune) bool {
-	return ch == '(' || ch == ')' || isWhitespace(ch) || ch == eof
 }
 
 var eof = rune(0)
@@ -102,11 +113,12 @@ var eof = rune(0)
 // Scanner represents a lexical scanner.
 type Scanner struct {
 	r *bufio.Reader
+	parenCount int
 }
 
 // NewScanner returns a new instance of Scanner.
 func NewScanner(r io.Reader) *Scanner {
-	return &Scanner{r: bufio.NewReader(r)}
+	return &Scanner{r: bufio.NewReader(r), parenCount: 0}
 }
 
 // read reads the next rune from the bufferred reader.
@@ -124,8 +136,22 @@ func (s *Scanner) unread() {
 	_ = s.r.UnreadRune()
 }
 
+func (s *Scanner) incr() {
+	s.parenCount += 1
+}
+
+func (s *Scanner) decr() {
+	if (s.parenCount > 0) { 
+		s.parenCount -= 1
+	}
+}
+
 // Scan returns the next token and literal value.
 func (s *Scanner) Scan() (tok Token, lit string) {
+	// We're in an SExpression?
+	if (s.parenCount > 0) {
+		return s.ScanDirective()
+	}
 	// Read the next rune.
 	ch := s.read()
 
@@ -136,8 +162,8 @@ func (s *Scanner) Scan() (tok Token, lit string) {
 	} else if isWhitespace(ch) {
 		s.unread()
 		return s.scanWhitespace()
-	} else if ch == '(' {
-		return s.scanOpen()
+	} else if ch == '#' {
+		return s.scanHash()
 	} else if ch == '"' {
 		return QUOTE, ""
 	}
@@ -157,8 +183,12 @@ func (s *Scanner) ScanDirective() (tok Token, lit string) {
 	} else if isWhitespace(ch) {
 		s.unread()
 		return s.scanWhitespace()
+	} else if ch == '(' {
+		s.incr()
+		return OPEN, ""
 	} else if ch == ')' {
-		return s.scanClose()
+		s.decr()
+		return CLOSE, ""
 	} else if ch == '"' {
 		return s.scanString()
 	}
@@ -166,33 +196,19 @@ func (s *Scanner) ScanDirective() (tok Token, lit string) {
 	return s.scanWordInDirective()
 }
 
-func (s *Scanner) scanOpen() (tok Token, lit string) {
+func (s *Scanner) scanHash() (tok Token, lit string) {
 	// Read the next rune.
 	ch := s.read()
-	if (ch == eof || isWhitespace(ch) || ch == '"') {
+	if (ch == '#') {
+		// Forget the first # and treat as current word
 		s.unread()
-		return WORD, "("
+		return s.scanWord()
 	}
-	if (ch == '(') {
-		return OPEN, ""
+	if (ch != '(') {
+		return ILLEGAL, ""
 	}
-	s.unread()
-	tok, str := s.scanWord()
-	return WORD, "(" + str
-}
-
-func (s *Scanner) scanClose() (tok Token, lit string) {
-	// Read the next rune.
-	ch := s.read()
-	if (ch == eof || isWhitespace(ch) || ch == '"') {
-		s.unread()
-		return WORD, ")"
-	}
-	if (ch == ')') {
-		return CLOSE, ""
-	}
-	tok, str := s.scanWord()
-	return WORD, ")" + str
+	s.incr()
+	return ANNOTATION, ""
 }
 
 // scanWhitespace consumes the current rune and all contiguous whitespace.
@@ -234,7 +250,7 @@ func (s *Scanner) scanWord() (tok Token, lit string) {
 		ch := s.read()
 		if ch == eof {
 			break
-		} else if isWhitespace(ch) || ch == '(' {
+		} else if isWhitespace(ch) {
 			s.unread()
 			break
 		} else if ch == '"' {
@@ -257,7 +273,7 @@ func (s *Scanner) scanWordInDirective() (tok Token, lit string) {
 		ch := s.read()
 		if ch == eof {
 			break
-		} else if isWhitespace(ch) || ch == ')' {
+		} else if isWhitespace(ch) || ch == ')' || ch == '(' {
 			s.unread()
 			break
 		} else {
@@ -360,6 +376,8 @@ func (p *Parser) scanDirectiveIgnoreWhitespace() (tok Token, lit string) {
 	return
 }
 
+// TODO: Clean up treatment of s-expressions in parser.
+
 func (p *Parser) Parse() (*Passage, error) {
 	passage := &Passage{make([]Block, 0, 10), make([]Option, 0, 10)}
 	inQuote := false
@@ -401,6 +419,55 @@ func (p *Parser) Parse() (*Passage, error) {
 				passage.Blocks = append(passage.Blocks, Block{TEXT, blockText, "", ""})
 			}
 			return passage, nil
+		}
+		if tok == ANNOTATION {
+			if inQuote {
+				inQuote = false
+				savedText = append(savedText, Text{TEXT_QUOTE, "", blockText})
+				blockText = savedText
+			}				
+			if len(blockText) > 0 { 
+				passage.Blocks = append(passage.Blocks, Block{TEXT, blockText, "", ""})
+				blockText = make([]Text, 0, 10)
+			}
+			sexp, err := p.parseSExpressions()
+			if err != nil {
+				return nil, err
+			}
+			//fmt.Printf("Sexp = %s\n", sexp.str())
+			if sexp.kind == T_CONS && sexp.car.kind == T_SYMBOL && sexp.car.value == "option" {
+				if sexp.cdr.kind != T_CONS || sexp.cdr.car.kind != T_STRING {
+					return nil, fmt.Errorf("No name supplied with option")
+				}
+				target := sexp.cdr.car.value
+				if sexp.cdr.cdr.kind != T_NIL {
+					return nil, fmt.Errorf("Extra junk after option name")
+				}
+				text := make([]Text, 0, 10)
+				for {
+					tok, lit = p.scanIgnoreWhitespace()
+					if tok == WORD {
+						text = append(text, Text{TEXT_WORD, lit, nil})
+					} else if tok == ANNOTATION {
+						sexp, err := p.parseSExpressions()
+						if err != nil {
+							return nil, err
+						}
+						if sexp.kind == T_CONS && sexp.car.kind == T_SYMBOL && sexp.car.value == "end" {
+							if sexp.cdr.kind != T_NIL {
+								return nil, fmt.Errorf("Extra junk after end")
+							}
+							break
+						} else {
+							return nil, fmt.Errorf("Illegal token in option text")
+						}
+					} else {
+						return nil, fmt.Errorf("Illegal token in option text")
+					}
+				}
+				passage.Options = append(passage.Options, Option{target, text})
+				
+			}
 		}
 		if tok == OPEN {
 			if inQuote {
@@ -462,4 +529,66 @@ func (p *Parser) Parse() (*Passage, error) {
 			}
 		}
 	}
+}
+
+func (p *Parser) parseSExpressions() (*SExp, error) {
+	result := &SExp{kind: T_NIL}
+	var curr *SExp
+	for {
+		tok, lit := p.scanIgnoreWhitespace()
+		//fmt.Printf("temp: %s\n", result)
+		//fmt.Printf("temp: %s\n", result.str())
+		//fmt.Printf("Token = %d %s\n", tok, lit)
+		var car *SExp
+		if tok == OPEN {
+			sexp, err := p.parseSExpressions()
+			if err != nil {
+				return nil, err
+			}
+			car = sexp
+			//fmt.Printf("sub-sexp: %s\n", car)
+			//fmt.Printf("sub-sexp: %s\n", car.str())
+		} else if tok == STRING {
+			car = &SExp{kind: T_STRING, value: lit}
+		} else if tok == WORD {
+			car = &SExp{kind: T_SYMBOL, value: lit}
+		} else if tok == CLOSE {
+			//fmt.Printf("result: %s\n", result)
+			//fmt.Printf("result: %s\n", result.str())
+			return result, nil
+		} else {
+			return nil, fmt.Errorf("Illegal token in s-expression: %d %s", tok, lit)
+		}
+		new_node := &SExp{kind: T_CONS, car: car, cdr: &SExp{kind: T_NIL}}
+		if curr == nil {
+			result = new_node
+		} else {
+			curr.cdr = new_node
+		}
+		curr = new_node
+	}
+}
+
+func (s *SExp) str() (string) {
+	if s.kind == T_NIL {
+		return "()"
+	}
+	if s.kind == T_STRING {
+		return "\"" + s.value + "\""
+	}
+	if s.kind == T_SYMBOL {
+		return s.value
+	}
+	if s.kind == T_CONS {
+		result := "("
+		curr := s
+		for {
+			if curr.kind == T_NIL {
+				return result + ")"
+			} 
+			result += " " + curr.car.str()
+			curr = curr.cdr
+		}
+	}
+	return "??"
 }
