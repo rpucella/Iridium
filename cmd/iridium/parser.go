@@ -76,21 +76,6 @@ const (
 
 )
 
-const (
-	T_INT = iota
-	T_STRING
-	T_SYMBOL
-	T_CONS
-	T_NIL
-)
-
-type SExp struct {
-	kind int
-	value string
-	car *SExp
-	cdr *SExp
-}
-
 func isWhitespace(ch rune) bool {
 	return ch == ' ' || ch == '\t' || ch == '\n'
 }
@@ -101,14 +86,6 @@ func isLetter(ch rune) bool {
 
 var eof = rune(0)
 
-// TODO: Check whether we can use a normal library Scanner?
-
-// TODO: Implement look-ahead nicely.
-
-// TODO: Add an s-expression parser:
-//   (( marks the beginning of an instruction
-//   push back ), parse sexp, make sure next character is ')'
-//   that might be a full token: an ANNOTATION
 
 // Scanner represents a lexical scanner.
 type Scanner struct {
@@ -376,8 +353,6 @@ func (p *Parser) scanDirectiveIgnoreWhitespace() (tok Token, lit string) {
 	return
 }
 
-// TODO: Clean up treatment of s-expressions in parser.
-
 func (p *Parser) Parse() (*Passage, error) {
 	passage := &Passage{make([]Block, 0, 10), make([]Option, 0, 10)}
 	inQuote := false
@@ -434,13 +409,12 @@ func (p *Parser) Parse() (*Passage, error) {
 			if err != nil {
 				return nil, err
 			}
-			//fmt.Printf("Sexp = %s\n", sexp.str())
-			if sexp.kind == T_CONS && sexp.car.kind == T_SYMBOL && sexp.car.value == "option" {
-				if sexp.cdr.kind != T_CONS || sexp.cdr.car.kind != T_STRING {
+			if sexp.index(0).isSymbol() && sexp.index(0).value == "option" {
+				if !sexp.index(1).isString() {
 					return nil, fmt.Errorf("No name supplied with option")
 				}
-				target := sexp.cdr.car.value
-				if sexp.cdr.cdr.kind != T_NIL {
+				target := sexp.index(1).value
+				if sexp.index(2) != nil  {
 					return nil, fmt.Errorf("Extra junk after option name")
 				}
 				text := make([]Text, 0, 10)
@@ -453,8 +427,8 @@ func (p *Parser) Parse() (*Passage, error) {
 						if err != nil {
 							return nil, err
 						}
-						if sexp.kind == T_CONS && sexp.car.kind == T_SYMBOL && sexp.car.value == "end" {
-							if sexp.cdr.kind != T_NIL {
+						if sexp.index(0).isSymbol() && sexp.index(0).value == "end" {
+							if sexp.index(1) != nil {
 								return nil, fmt.Errorf("Extra junk after end")
 							}
 							break
@@ -466,73 +440,14 @@ func (p *Parser) Parse() (*Passage, error) {
 					}
 				}
 				passage.Options = append(passage.Options, Option{target, text})
-				
-			}
-		}
-		if tok == OPEN {
-			if inQuote {
-				inQuote = false
-				savedText = append(savedText, Text{TEXT_QUOTE, "", blockText})
-				blockText = savedText
-			}				
-			if len(blockText) > 0 { 
-				passage.Blocks = append(passage.Blocks, Block{TEXT, blockText, "", ""})
-				blockText = make([]Text, 0, 10)
-			}
-			tok, lit := p.scanDirectiveIgnoreWhitespace()  // get instruction
-			if tok == WORD && lit == "option" {
-				tok, target := p.scanDirectiveIgnoreWhitespace()
-				if tok != STRING {
-					return nil, fmt.Errorf("No name supplied with option")
-				}
-				tok, _ = p.scanDirectiveIgnoreWhitespace()
-				if tok != CLOSE {
-					return nil, fmt.Errorf("Extra junk after option name")
-				}
-				text := make([]Text, 0, 10)
-				for {
-					tok, lit = p.scanIgnoreWhitespace()
-					if tok == WORD {
-						text = append(text, Text{TEXT_WORD, lit, nil})
-					} else if tok == OPEN {
-						tok, lit := p.scanDirectiveIgnoreWhitespace()
-						if tok == WORD && lit == "end" {
-							tok, _ = p.scanDirectiveIgnoreWhitespace()
-							if tok != CLOSE {
-								return nil, fmt.Errorf("Extra junk after end")
-							}
-							break
-						} else {
-							return nil, fmt.Errorf("Illegal token in option text")
-						}
-					} else {
-						return nil, fmt.Errorf("Illegal token in option text")
-					}
-				}
-				passage.Options = append(passage.Options, Option{target, text})
-			} else if tok == WORD && lit == "image" {
-				tok, target := p.scanDirectiveIgnoreWhitespace()
-				if tok != STRING {
-					return nil, fmt.Errorf("No image target supplied after {image")
-				}
-				tok, style := p.scanDirectiveIgnoreWhitespace()
-				if tok != STRING {
-					return nil, fmt.Errorf("No style after {image target")
-				}
-				tok, _ = p.scanDirectiveIgnoreWhitespace()
-				if tok != CLOSE {
-					return nil, fmt.Errorf("Extra junk after {option target style")
-				}
-				passage.Blocks = append(passage.Blocks, Block{IMAGE, nil, target, style})
-			} else {
-				return nil, fmt.Errorf("Unsupported block type %s", lit)
 			}
 		}
 	}
 }
 
 func (p *Parser) parseSExpressions() (*SExp, error) {
-	result := &SExp{kind: T_NIL}
+	sNil := newNil()
+	result := sNil
 	var curr *SExp
 	for {
 		tok, lit := p.scanIgnoreWhitespace()
@@ -549,9 +464,9 @@ func (p *Parser) parseSExpressions() (*SExp, error) {
 			//fmt.Printf("sub-sexp: %s\n", car)
 			//fmt.Printf("sub-sexp: %s\n", car.str())
 		} else if tok == STRING {
-			car = &SExp{kind: T_STRING, value: lit}
+			car = newString(lit)
 		} else if tok == WORD {
-			car = &SExp{kind: T_SYMBOL, value: lit}
+			car = newSymbol(lit)
 		} else if tok == CLOSE {
 			//fmt.Printf("result: %s\n", result)
 			//fmt.Printf("result: %s\n", result.str())
@@ -559,7 +474,7 @@ func (p *Parser) parseSExpressions() (*SExp, error) {
 		} else {
 			return nil, fmt.Errorf("Illegal token in s-expression: %d %s", tok, lit)
 		}
-		new_node := &SExp{kind: T_CONS, car: car, cdr: &SExp{kind: T_NIL}}
+		new_node := newCons(car, sNil)
 		if curr == nil {
 			result = new_node
 		} else {
@@ -567,28 +482,4 @@ func (p *Parser) parseSExpressions() (*SExp, error) {
 		}
 		curr = new_node
 	}
-}
-
-func (s *SExp) str() (string) {
-	if s.kind == T_NIL {
-		return "()"
-	}
-	if s.kind == T_STRING {
-		return "\"" + s.value + "\""
-	}
-	if s.kind == T_SYMBOL {
-		return s.value
-	}
-	if s.kind == T_CONS {
-		result := "("
-		curr := s
-		for {
-			if curr.kind == T_NIL {
-				return result + ")"
-			} 
-			result += " " + curr.car.str()
-			curr = curr.cdr
-		}
-	}
-	return "??"
 }

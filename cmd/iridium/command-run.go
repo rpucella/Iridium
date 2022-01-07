@@ -163,6 +163,6 @@ func run(srcdir string) {
 
 
 func clear() {
-	fmt.Print("\033[H\033[2J")
+	fmt.Print("\033[H\033[2J\n")
 }
 
