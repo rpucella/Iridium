@@ -29,5 +29,5 @@ func readPassage(srcdir string, passage string) (string, error) {
 }
 
 func writePassage(srcdir string, passage string, text string) (error) {
-	return ioutil.WriteFile(path.Join(srcdir, passage + ".txt"), []byte(text), 0755)
+	return ioutil.WriteFile(path.Join(srcdir, passage + ".txt"), []byte(text), 0644)
 }

@@ -104,7 +104,7 @@ func notesHandler(srcdir string) func(http.ResponseWriter, *http.Request) {
 			}
 			text := string(body)
 			log.Println("Writing notes")
-			err = ioutil.WriteFile(path.Join(srcdir, SRC_NOTES), []byte(text), 0755)
+			err = ioutil.WriteFile(path.Join(srcdir, SRC_NOTES), []byte(text), 0644)
 			if err != nil {
 				http.Error(w, "500 internal error.", http.StatusInternalServerError)
 				return

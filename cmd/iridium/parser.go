@@ -354,6 +354,7 @@ func (p *Parser) scanDirectiveIgnoreWhitespace() (tok Token, lit string) {
 }
 
 func (p *Parser) Parse() (*Passage, error) {
+	// There is probably a nicer way to write this, possibly recursively.
 	passage := &Passage{make([]Block, 0, 10), make([]Option, 0, 10)}
 	inQuote := false
 	var savedText []Text
@@ -417,12 +418,29 @@ func (p *Parser) Parse() (*Passage, error) {
 				if sexp.index(2) != nil  {
 					return nil, fmt.Errorf("Extra junk after option name")
 				}
+				inQuote := false
+				var savedText []Text
 				text := make([]Text, 0, 10)
 				for {
 					tok, lit = p.scanIgnoreWhitespace()
 					if tok == WORD {
 						text = append(text, Text{TEXT_WORD, lit, nil})
+					} else if tok == QUOTE {
+						if inQuote {
+							inQuote = false
+							savedText = append(savedText, Text{TEXT_QUOTE, "", text})
+							text = savedText
+						} else {
+							inQuote = true
+							savedText = text
+							text = make([]Text, 0, 10)
+						}
 					} else if tok == ANNOTATION {
+						if inQuote {
+							inQuote = false
+							savedText = append(savedText, Text{TEXT_QUOTE, "", text})
+							text = savedText
+						}				
 						sexp, err := p.parseSExpressions()
 						if err != nil {
 							return nil, err
