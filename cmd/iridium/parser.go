@@ -458,6 +458,19 @@ func (p *Parser) Parse() (*Passage, error) {
 					}
 				}
 				passage.Options = append(passage.Options, Option{target, text})
+			} else if sexp.index(0).isSymbol() && sexp.index(0).value == "image" {
+				if !sexp.index(1).isString() {
+					return nil, fmt.Errorf("No image name supplied with image")
+				}
+				target := sexp.index(1).value
+				if sexp.index(2) != nil  {
+					return nil, fmt.Errorf("Extra junk after image name")
+				}
+				if len(blockText) > 0 { 
+					passage.Blocks = append(passage.Blocks, Block{TEXT, blockText, "", ""})
+					blockText = make([]Text, 0, 10)
+				}
+				passage.Blocks = append(passage.Blocks, Block{IMAGE, nil, target, ""})
 			}
 		}
 	}
