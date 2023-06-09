@@ -89,18 +89,18 @@ func dumpGameJS(fileout io.Writer, gameJson string) {
 	}
 }
 
-func dumpContentJS(fileout io.Writer, contentJS string) {
-	file, err := os.Open(contentJS)
-	if err != nil {
-		stop(fmt.Sprint(err))
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		fmt.Fprintln(fileout, line)
-	}
-}
+// func dumpContentJS(fileout io.Writer, contentJS string) {
+// 	file, err := os.Open(contentJS)
+// 	if err != nil {
+// 		stop(fmt.Sprint(err))
+// 	}
+// 	defer file.Close()
+// 	scanner := bufio.NewScanner(file)
+// 	for scanner.Scan() {
+// 		line := scanner.Text()
+// 		fmt.Fprintln(fileout, line)
+// 	}
+// }
 
 func joinText(items []Text) string {
 	texts := make([]string, len(items))

@@ -173,7 +173,7 @@ func dumpDevContent(w io.Writer, psgdir string) {
 function content() { 
   const cntnt = {}; 
   cntnt[game.init] = function(state) { 
-     processPassage(game.init, false);
+     processPassage(game.init, state, false);
   };
   return cntnt;
 }
@@ -182,16 +182,29 @@ const buttonStyle = 'margin-left: 16px; padding: calc(.5em - 1px) 1em; backgroun
 
 const devMessageStyle = 'color: #00947e;'
 
-function processPassage(psg, clear) { 
+const history = [];
+
+function processLastPassage(clear) {
+  if (history.length > 0) {
+    let last = history.pop()
+    processPassage(last.passage, last.state, clear)
+  }
+}
+
+function processPassage(psg, state, clear) {
    if (clear) { 
      io.newp();
    }
-   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>Passage: ' + psg + '</b></span> <button style="' + buttonStyle + '" onclick="edit(\'' + psg + '\', true)">Edit</button> <button style="' + buttonStyle + '" onclick="editNotes(\'' + psg + '\')">Notes</button></div>');
+   let previousButton = history.length > 0 ? '<button style="' + buttonStyle + '" onclick="previous()">Previous</button>' : ''
+   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>Passage: ' + psg + '</b></span> <button style="' + buttonStyle + '" onclick="edit(\'' + psg + '\', true)">Edit</button> <button style="' + buttonStyle + '" onclick="editNotes()">Notes</button> ' + previousButton + '</div>');
+
+   history.push({passage: psg, state: structuredClone(state)})
+
    fetch(encodeURI('/passage/' + psg))
      .then(response => { 
         if (response.status === 200) { 
           response.json()
-            .then(json => processJSON(json, psg));
+            .then(json => processJSON(json, psg, state));
         } else { 
           io.html('<span style="color: red;"><b>No such passage</b></span>');
         }
@@ -217,9 +230,16 @@ function itemText(item) {
   }
 }
 
-function processJSON(json, psg) {
+function previous() {
+  if (history.length > 1) {
+    history.pop()
+    processLastPassage(true)
+  }
+}
+
+function processJSON(json, psg, state) {
    imageName = null;
-   for (let b of json.Blocks) { 
+   for (let b of json.Blocks) {
      switch(b.Kind) { 
        case 0:   // TEXT
          io.p(joinText(b.Content));
@@ -234,14 +254,14 @@ function processJSON(json, psg) {
    }
    let c = io.choices();
    for (let opt of json.Options) { 
-     c = c.option(joinText(opt.Content), function() { processPassage(opt.Target, true) });
+     c = c.option(joinText(opt.Content), function() { processPassage(opt.Target, state, true) });
    }
    c.show();
 }
 
 function edit(psg, exists) { 
    io.newp();
-   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>Passage: ' + psg + '</b></span> <button style="' + buttonStyle + '" onclick="save(\'' + psg + '\')">Save</button> <button style="' + buttonStyle + '" onclick="processPassage(\'' + psg + '\', true)">Cancel</button></div>');
+   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>Passage: ' + psg + '</b></span> <button style="' + buttonStyle + '" onclick="save(\'' + psg + '\')">Save</button> <button style="' + buttonStyle + '" onclick="processLastPassage(true)">Cancel</button></div>');
 
    if (exists) { 
      fetch(encodeURI('/raw/' + psg))
@@ -258,9 +278,9 @@ function edit(psg, exists) {
    }
 }
 
-function editNotes(psg) { 
+function editNotes() {
    io.newp();
-   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>NOTES</b></span> <button style="' + buttonStyle + '" onclick="saveNotes(\'' + psg + '\')">Save</button> <button style="' + buttonStyle + '" onclick="processPassage(\'' + psg + '\', true)">Cancel</button></div>');
+   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>NOTES</b></span> <button style="' + buttonStyle + '" onclick="saveNotes()">Save</button> <button style="' + buttonStyle + '" onclick="processLastPassage()">Cancel</button></div>');
 
    fetch(encodeURI('/notes'))
      .then(response => { 
@@ -273,7 +293,7 @@ function editNotes(psg) {
       })
 }
 
-function saveNotes(psg) { 
+function saveNotes() {
    const text = document.querySelector('textarea').value;
    fetch(encodeURI('/notes'), {
        method: 'PUT',
@@ -281,7 +301,7 @@ function saveNotes(psg) {
           'Content-Type': 'text/plain'
        },
        body: text
-   }).then(response => processPassage(psg, true))
+   }).then(response => processLastPassage(true))
 }
 
 function createTextArea(init, noImage) {
@@ -300,7 +320,7 @@ function save(psg) {
           'Content-Type': 'text/plain'
        },
        body: text
-   }).then(response => processPassage(psg, true))
+   }).then(response => processLastPassage(true))
 }
 `)
 }
