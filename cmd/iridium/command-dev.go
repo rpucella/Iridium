@@ -7,6 +7,8 @@ import (
 	"path"
 	"bufio"
 	"os"
+	"os/exec"
+	"time"
 	"strings"
 	"io"
 	"io/ioutil"
@@ -21,10 +23,19 @@ func devCommand(srcdir string) {
 	http.HandleFunc("/passage/", passageHandler(srcdir))
 	http.HandleFunc("/raw/", rawHandler(srcdir))
 	http.Handle("/assets/", http.StripPrefix("/assets/", assetsFileServer))
-	
+
+	go startBrowser(1)
+
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// TODO: Abstract this away somehow.
+func startBrowser(secs int) {
+	time.Sleep(time.Duration(secs) * time.Second)
+	cmd := exec.Command("/Applications/Firefox.app/Contents/MacOS/firefox", "-private-window", "localhost:8080")
+	_ = cmd.Run()
 }
 
 func passageHandler(srcdir string) func(http.ResponseWriter, *http.Request) {
