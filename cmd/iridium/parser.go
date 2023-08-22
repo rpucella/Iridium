@@ -46,6 +46,7 @@ type Block struct {
 type Passage struct {
 	Blocks []Block
 	Options []Option
+	Title []Text
 }
 
 type Option struct {
@@ -355,7 +356,7 @@ func (p *Parser) scanDirectiveIgnoreWhitespace() (tok Token, lit string) {
 
 func (p *Parser) Parse() (*Passage, error) {
 	// There is probably a nicer way to write this, possibly recursively.
-	passage := &Passage{make([]Block, 0, 10), make([]Option, 0, 10)}
+	passage := &Passage{make([]Block, 0, 10), make([]Option, 0, 10), make([]Text, 0, 10)}
 	inQuote := false
 	var savedText []Text
 	blockText := make([]Text, 0, 10)
@@ -440,7 +441,7 @@ func (p *Parser) Parse() (*Passage, error) {
 							inQuote = false
 							savedText = append(savedText, Text{TEXT_QUOTE, "", text})
 							text = savedText
-						}				
+						}
 						sexp, err := p.parseSExpressions()
 						if err != nil {
 							return nil, err
@@ -471,6 +472,47 @@ func (p *Parser) Parse() (*Passage, error) {
 					blockText = make([]Text, 0, 10)
 				}
 				passage.Blocks = append(passage.Blocks, Block{IMAGE, nil, target, ""})
+			} else if sexp.index(0).isSymbol() &&sexp.index(0).value == "title" {
+				inQuote := false
+				var savedText []Text
+				text := make([]Text, 0, 10)
+				for {
+					tok, lit = p.scanIgnoreWhitespace()
+					if tok == WORD {
+						text = append(text, Text{TEXT_WORD, lit, nil})
+					} else if tok == QUOTE {
+						if inQuote {
+							inQuote = false
+							savedText = append(savedText, Text{TEXT_QUOTE, "", text})
+							text = savedText
+						} else {
+							inQuote = true
+							savedText = text
+							text = make([]Text, 0, 10)
+						}
+					} else if tok == ANNOTATION {
+						if inQuote {
+							inQuote = false
+							savedText = append(savedText, Text{TEXT_QUOTE, "", text})
+							text = savedText
+						}
+						sexp, err := p.parseSExpressions()
+						if err != nil {
+							return nil, err
+						}
+						if sexp.index(0).isSymbol() && sexp.index(0).value == "end" {
+							if sexp.index(1) != nil {
+								return nil, fmt.Errorf("Extra junk after end")
+							}
+							break
+						} else {
+							return nil, fmt.Errorf("Illegal token in title text")
+						}
+					} else {
+						return nil, fmt.Errorf("Illegal token in title text")
+					}
+				}
+				passage.Title = text
 			}
 		}
 	}

@@ -136,6 +136,9 @@ func compile(srcdir string) (string, error) {
 			return "", err
 		}
 		body := "let c = io.choices(); "
+		if len(psg.Title) > 0 {
+			body += fmt.Sprintf("io.t(\"%s\"); ", joinText(psg.Title))
+		}
 		for _, b := range(psg.Blocks) {
 			if b.Kind == TEXT {
 				body += fmt.Sprintf("io.p(\"%s\"); ", joinText(b.Content))

@@ -239,6 +239,9 @@ function previous() {
 
 function processJSON(json, psg, state) {
    imageName = null;
+   if (json.Title.length > 0) {
+     io.t(joinText(json.Title));
+   }
    for (let b of json.Blocks) {
      switch(b.Kind) { 
        case 0:   // TEXT
