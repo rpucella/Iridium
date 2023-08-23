@@ -283,7 +283,7 @@ function edit(psg, exists) {
 
 function editNotes() {
    io.newp();
-   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>NOTES</b></span> <button style="' + buttonStyle + '" onclick="saveNotes()">Save</button> <button style="' + buttonStyle + '" onclick="processLastPassage()">Cancel</button></div>');
+   io.html('<div style="display: flex; flex-direction: row; align-items: center; margin-bottom: 16px;"><span style="' + devMessageStyle + '"><b>NOTES</b></span> <button style="' + buttonStyle + '" onclick="saveNotes()">Save</button> <button style="' + buttonStyle + '" onclick="processLastPassage(true)">Cancel</button></div>');
 
    fetch(encodeURI('/notes'))
      .then(response => { 
@@ -309,9 +309,9 @@ function saveNotes() {
 
 function createTextArea(init, noImage) {
    if (imageName && !noImage) { 
-      io.html('<div style="display: flex; flex-direction: row; align-items: flex-start; width: 100%;"><textarea style="flex: 1 0; resize: vertical; width: 60%; height: 80vh; font-size: 70%;">' + init + '</textarea> <img src="' + imageName + '" style="width: 30%; margin-left: 16px;"></div>');
+      io.html('<div style="display: flex; flex-direction: row; align-items: flex-start; width: 100%;"><textarea style="flex: 1 0; resize: vertical; width: 60%; height: 80vh; font-size: 70%; border: 1px solid #ccc; border-radius: 8px; padding: 8px;">' + init + '</textarea> <img src="' + imageName + '" style="width: 30%; margin-left: 16px;"></div>');
    } else { 
-      io.html('<textarea style="resize: vertical; width: 100%; height: 80vh; font-size: 70%;">' + init + '</textarea>');
+      io.html('<textarea style="resize: vertical; width: 100%; height: 80vh; font-size: 70%; border: 1px solid #ccc; border-radius: 8px; padding: 8px;">' + init + '</textarea>');
    }
 }
 
