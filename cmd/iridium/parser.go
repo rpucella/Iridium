@@ -71,9 +71,11 @@ const (
 
 	QUOTE   // "
 	
-	ANNOTATION  // #(
+	ANNOTATION  // (#
+	INLINE      // (+
 	OPEN    // (
 	CLOSE   // )
+
 
 )
 
@@ -140,8 +142,8 @@ func (s *Scanner) Scan() (tok Token, lit string) {
 	} else if isWhitespace(ch) {
 		s.unread()
 		return s.scanWhitespace()
-	} else if ch == '#' {
-		return s.scanHash()
+	} else if ch == '(' {
+		return s.scanParen()
 	} else if ch == '"' {
 		return QUOTE, ""
 	}
@@ -174,19 +176,45 @@ func (s *Scanner) ScanDirective() (tok Token, lit string) {
 	return s.scanWordInDirective()
 }
 
-func (s *Scanner) scanHash() (tok Token, lit string) {
+func (s *Scanner) scanParen() (tok Token, lit string) {
 	// Read the next rune.
 	ch := s.read()
-	if (ch == '#') {
-		// Forget the first # and treat as current word
-		s.unread()
-		return s.scanWord()
+	if ch == '#' {
+		// Treat as a parenthesis open so we can catch the corresponding close.
+		s.incr()
+		return ANNOTATION, ""
+	} else if ch == ';' {
+		return s.scanSkipComment()
 	}
-	if (ch != '(') {
-		return ILLEGAL, ""
+	// Forget the first ( and treat as current word.
+	s.unread()
+	return s.scanWord()
+}
+
+func (s *Scanner) scanSkipComment() (tok Token, lit string) {
+	// We've already seen "(;".
+	// Skip until "<space>;)".
+	// Return whatever scans next.
+	fmt.Println("Scanning comment")
+	prev2 := rune(0)
+	prev1 := rune(0)
+	for {
+		ch := s.read()
+		if ch == eof {
+			return EOF, ""
+		} else if ch == ')' && prev1 == ';' && isWhitespace(prev2) {
+			// We're done - scan normally.
+			return s.Scan()
+		} else if ch == ';' && prev1 == '(' {
+			// Nested comment.
+			s.scanSkipComment()
+			prev2 = rune(0)
+			prev1 = rune(0)
+		} else {
+			prev2 = prev1
+			prev1 = ch
+		}
 	}
-	s.incr()
-	return ANNOTATION, ""
 }
 
 // scanWhitespace consumes the current rune and all contiguous whitespace.
