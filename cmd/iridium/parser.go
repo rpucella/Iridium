@@ -195,7 +195,7 @@ func (s *Scanner) scanSkipComment() (tok Token, lit string) {
 	// We've already seen "(;".
 	// Skip until "<space>;)".
 	// Return whatever scans next.
-	fmt.Println("Scanning comment")
+	///fmt.Println("Scanning comment")
 	prev2 := rune(0)
 	prev1 := rune(0)
 	for {
